@@ -75,7 +75,7 @@ class ASN1:
 
     @property
     def typeclass(self):
-        return return ASN1.typeclassname[self._typeclass]
+        return ASN1.typeclassname[self._typeclass]
 
     @property
     def tag(self):
