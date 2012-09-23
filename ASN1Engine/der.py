@@ -9,13 +9,12 @@
 # else, we are a primitive. Just parse the content.
 
 from __future__ import print_function
-
+import operator
 
 # Number of times to indent output
 # A list is used to force access by reference
 
 __report_indent = [0]
-__indent_len = 2
 
 def instrument(fn):
     """Decorator to print information about a function
@@ -28,22 +27,24 @@ def instrument(fn):
 
     def wrap(*params,**kwargs):
         call = wrap.callcount = wrap.callcount + 1
+        indent_len = 2
+        
+        indent = '-' * __report_indent[0] * indent_len + '+ '
 
-        indent = ' ' * __report_indent[0]
         fc = "%s(%s)" % (fn.__name__, ', '.join(
             [a.__repr__() for a in params] +
             ["%s = %s" % (a, repr(b)) for a,b in kwargs.items()]
         ))
 
-        print ("%s%s called [#%s]" % (indent, fc, call))
-        __report_indent[0] += __indent_len
+        print ("%s%s called C[#%s] L[#%s]" % (indent, fc, call, __report_indent[0]))
+        __report_indent[0] += 1
         ret = fn(*params,**kwargs)
-        __report_indent[0] -= __indent_len
-        print ("%s%s returned %s [#%s]" % (indent, fc, repr(ret), call))
-
+        __report_indent[0] -= 1
+        print ("%s%s returned %s C[#%s] L[#%s]" % (indent, fc, repr(ret), call, __report_indent[0]))
+        
         return ret
     
-    wrap.callcount = 0
+    wrap.callcount = 0    
     return wrap
 
 ######################################################################
@@ -107,8 +108,6 @@ class DERTag(DERAtom):
             # we are in the short form (easiest)
             self._tag = firstbyte & 0b00011111
             
-        print("Created TAG with value {0:x}".format(self._tag))
-
     @property
     def asint(self):
         """
@@ -144,8 +143,6 @@ class DERLen(DERAtom):
             # short form
             self._len = firstbyte & 0x7f
  
-        print("Length found:{0}".format(self._len))
-
     @property
     def asint(self):
         """
@@ -177,19 +174,25 @@ class DERVal(DERAtom):
             self._vallist = []     # create a list
 
             l = datalen
-            print("<BEG>{0:#08x} is a structured object".format(id(self)))
             while l>0:
-                print('appending next subitem')
                 subitem = DERObject(stream)
                 self._vallist.append(subitem) # add the subitem
-                print("<BEF>datalen=[{3:#08x}]{0}, taken={1}, remaining {2}".format(datalen, len(subitem), l, id(self)))
                 l -= len(subitem)
-                print("content={0}".format(subitem))
-                print("<AFT>datalen=[{3:#08x}]{0}, taken={1}, remaining {2}".format(datalen, len(subitem), l, id(self)))
-            print("<END>{0:#08x} is a structured object - remaining {1}".format(id(self), l))
 
         else:
             self._val = self._read(stream,datalen) # get value
+    
+    def __len__(self):
+        # __len__ of DERVal must be overridden,
+        # to turn it into a recursive sum of subitems.
+        if self._vallist is not None:
+            if len(self._vallist)==0:
+                return 0
+            else:
+                return reduce(operator.add, [len(subitem) for subitem in self._vallist])
+            pass
+        else:
+            return super(DERVal, self).__len__()
 
 #    @instrument
     def __repr__(self):
@@ -204,7 +207,6 @@ class DERObject(object):
 
 #    @instrument
     def __init__(self, stream):
-        print("stream offset: {0}".format(stream.tell()))
         self.tag = DERTag(stream)
         self.len = DERLen(stream)
         self.val = DERVal(stream, self.tag, self.len.asint)
@@ -215,15 +217,15 @@ class DERObject(object):
     
 #    @instrument
     def __repr__(self):
-        return "<DERObject at {3:#08x} T={0:s} L={1} V=<{2:s}>".format( self.tag.ashex, self.len.asint, self.val, id(self))
-
+        try:
+            return "<DERObject at {3:#08x} T={0:s} L={1} V=<{2:s}>".format( self.tag.ashex, self.len.asint, self.val, id(self))
+        except AttributeError:
+            return "<{0} object at {1:#08x}>".format(self.__class__.__name__, id(self))
+        
 if __name__ == '__main__':
     
     print('-'*72)
-    with open('key.der', 'rb') as p10:
+    with open('csr.der', 'rb') as p10:
         D = DERObject(p10)
-        
-        import pdb
-        pdb.set_trace()
         print(D)
 
